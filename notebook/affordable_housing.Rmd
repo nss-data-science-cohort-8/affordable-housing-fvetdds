@@ -60,17 +60,21 @@ Finally, try instead of using a binary variable for before or after to use a tpo
 
 ```{r}
 lihtc <- read_csv("../data/LIHTC.csv")
-zipcode <- st_read("../data/zipcodes.geojson")
-richards_apt <- lihtc |>
-  filter(HUD_ID == "TNA20130015")|>
+lihtc <- lihtc |>
   rename(latitude = LATITUDE, longitude = LONGITUDE)
+lihtc$latitude <- as.numeric(lihtc$latitude) 
+lihtc$longitude <- as.numeric(lihtc$longitude)
 
+
+
+richards_apt <- lihtc |>
+  filter(HUD_ID == "TNA20130015")
 
 ```
 ```{r}
 
 latitude <- 36.06866
-longitude <- -86.67468
+longitude <- 86.67468
 distance_meters <- 2000 * 0.3048 # Convert feet to meters
 earth_radius <- 6371000 # Earth radius in meters
 
@@ -100,13 +104,10 @@ coords <- matrix(
   ncol = 2,
   byrow = TRUE
 )
-area <- st_polygon(list(coords)) |>
-  st_sfc(crs = 4326)
-if (!st_is_valid(area)) {
-area <- st_make_valid(area) }
+
 
 latitude <- 36.06866
-longitude <- -86.67468
+longitude <- 86.67468
 distance_meters <- 3000 * 0.3048 # Convert feet to meters
 earth_radius <- 6371000 # Earth radius in meters
 
@@ -127,10 +128,7 @@ south_point <- c(latitude - delta_lat_deg, longitude)
 east_point <- c(latitude, longitude + delta_lon_deg)
 west_point <- c(latitude, longitude - delta_lon_deg)
 
-north_point
-south_point
-east_point
-west_point
+
 ```
 ```{r}
 property_details <- read_csv("../data/property_details.csv")
@@ -139,38 +137,124 @@ property_details <- property_details |>
     longitude = as.numeric(str_extract(`centroid`, "-?\\d+\\.\\d+")),
     latitude = as.numeric(str_extract(`centroid`, ",-?\\d+\\.\\d+") %>% str_remove(","))
   )
-  
 
-treatment_group<- property_details |>
-filter(latitude>=36.06318 & latitude<=36.07414 & longitude >= -86.68146 &longitude<= -86.67468)
+three_thousand_group <- property_details %>%
+  filter(latitude >= 36.06044 & latitude <= 36.07688 & longitude >= -86.68485 & longitude <= -86.66457)
 
+treatment_group <- property_details %>%
+  filter(latitude >= 36.06318 & latitude <= 36.07414 & longitude >= -86.68146 & longitude <= -86.66790)
 
-leaflet(data = treatment_group|> 
-          drop_na(latitude, longitude))|>  
-  addTiles() |> 
-  addMarkers(~longitude, 
-             ~latitude, 
-             popup = ~as.character(`apn`), 
-             label = ~as.character(`tract`)
-             )|>
+control_group <- anti_join(three_thousand_group, treatment_group)
+
+# Combine both groups into a single map
+leaflet() %>%
+  addTiles() %>%
+  # Add control group markers
+  addCircleMarkers(
+    data = pre_control %>% drop_na(latitude, longitude),
+    ~longitude,
+    ~latitude,
+    color = "orange",      # Marker outline color
+    fillColor = "orange",  # Fill color
+    fillOpacity = 0.8,     # Fill opacity
+    radius = 6,            # Marker size
+    popup = ~as.character(`apn`),
+    label = ~as.character(`tract`),
+    group = "Control Group"
+  ) %>%
+  # Add treatment group markers
+  addMarkers(
+    data = pre_treatment %>% drop_na(latitude, longitude),
+    ~longitude,
+    ~latitude,
+    popup = ~as.character(`apn`),
+    label = ~as.character(`tract`),
+    group = "Treatment Group"
+  ) %>%
+  # Add the Richards Apartments marker
   addCircleMarkers(
     data = richards_apt,
     ~longitude,
     ~latitude,
-    color = "red",     # Marker outline color
-    fillColor = "red", # Fill color
-    fillOpacity = 1,   # Fill opacity
-    radius = 8,        # Size of the marker
-    popup = ~ PROJECT,
-    label = ~HUD_ID)
+    color = "red",      # Marker outline color
+    fillColor = "red",  # Fill color
+    fillOpacity = 1,    # Fill opacity
+    radius = 8,         # Marker size
+    popup = ~PROJECT,
+    label = ~HUD_ID
+  )
+
+```
+
+```{r}
+treatment_group <- treatment_group[!duplicated(treatment_group$apn), ]
+
+pre_sale_price <- filter_sale |>
+  filter(ownerdate >= as.Date("2007-01-01") & ownerdate <= as.Date("2011-12-31")) 
+pre_sale_price <- pre_sale_price[!duplicated(pre_sale_price$apn), ]
+
+post_sale_price <- filter_sale |>
+  filter(ownerdate >= as.Date("2013-01-01") & ownerdate <= as.Date("2018-12-31"))
+post_sale_price <- post_sale_price[!duplicated(post_sale_price$apn), ]
+
+pre_treatment <- merge(treatment_group, pre_sale_price, by = "apn", all.x = TRUE) |>
+  filter(!is.na(ownerdate)) 
+  
+  
+post_treatment <- merge(treatment_group, post_sale_price, by = "apn", all.x =TRUE) |>
+  filter(!is.na(ownerdate)) 
   
 ```
 
 
+```{r}
+control_group <- control_group[!duplicated(control_group$apn), ]
+pre_control <- merge(control_group, pre_sale_price, by = "apn", all.x =TRUE) |>
+  filter(!is.na(ownerdate))
+post_control <- merge(control_group, post_sale_price, by = "apn", all.x =TRUE) |>
+  filter(!is.na(ownerdate))
+```
+```{r}
+average_pre_con <- pre_control |>
+  summarise(average_pre_con = mean(amount), na.rm = TRUE)
+average_post_con <- post_control |>
+  summarise(average_post_con = mean(amount), na.rm = TRUE)
+average_pre_treatm <- pre_treatment |>
+  summarise(average_pre_treatm = mean(amount), na.rm = TRUE)
+average_post_treatm <- post_treatment |>
+  summarise(average_post_treatm = mean(amount), na.rm = TRUE)
+
+dif_table <- tibble(
+  group = c("control", "control", "experiment", "experiment"),
+  time = c("pre", "post", "pre", "post"),
+  average_price = c(average_pre_con$average_pre_con, average_post_con$average_post_con, average_pre_treatm$average_pre_treatm, average_post_treatm$average_post_treatm)
+)
+```
 
 
+```{r}
+price_change_difference <- dif_table |>
+  group_by(group)|>
+  summarise(Difference = diff(average_price)) |>
+  mutate(diff(Difference))
+price_change_difference
+print("The diff(Difference) value of -18403.91 indicates that the difference in price change between the experiment group and the control group is 18403.91 lower in the experiment group, with the control group showing a much larger increase in price compared to the experiment group.")
+```
+After doing this basic model, you might try some adding some predictors to your model, like the square footage or age of the home. You might also try using the log of the sales price as the target.
+```{r}
+
+```
+
+
+Finally, try instead of using a binary variable for before or after to use a tpost variable indicating the number of years before or after the development that the sale took place. Do your conclusions change?
 **Stretch Goals:** 
 Modify your code so that it works on other developments. Are your findings the same? 
+
+
+```{r}
+
+```
+
 
 Next, rather than focusing on a single development at time, modify your model to consider all housing developments. Note that you'll likely want to include the sales year as an explanatory variable in your model.
 
