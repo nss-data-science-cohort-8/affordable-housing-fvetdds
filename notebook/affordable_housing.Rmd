@@ -242,21 +242,163 @@ print("The diff(Difference) value of -18403.91 indicates that the difference in 
 ```
 After doing this basic model, you might try some adding some predictors to your model, like the square footage or age of the home. You might also try using the log of the sales price as the target.
 ```{r}
+model <- lm(amount ~ ownerdate + square_footage, data = post_treatment)
+summary(model)
 
 ```
-
-
-Finally, try instead of using a binary variable for before or after to use a tpost variable indicating the number of years before or after the development that the sale took place. Do your conclusions change?
-**Stretch Goals:** 
-Modify your code so that it works on other developments. Are your findings the same? 
 
 
 ```{r}
+model2 <- lm(log(amount)~ ownerdate + square_footage + number_of_rooms + year_built + latitude + land_area, data = post_treatment)
+summary(model2)
+predicted_sales_price <- exp(predict(model2, newdata = post_treatment))
+summary(predicted_sales_price)
 
 ```
+```{r}
+model2 <- lm(log(amount)~ ownerdate + square_footage + number_of_rooms + year_built + land_area, data = post_control)
+summary(model2)
+predicted_sales_price <- exp(predict(model2, newdata = post_control))
+summary(predicted_sales_price)
 
+```
+---
+findings:
+1. low number of RSE suggests that the model explains the variation in the data well
+2. R-squared of 0.774 in control group means the model explains about 77.4% of the variance in the log-transformed sale amount.
+3. F-statistic = 13.2
+4. small p-value indicates that the model is statistically significant.
+5. min, median and max values show a wide range with significant right-skewness that supports the appropiate use of log-transformation to improve model fit.
+---
+Finally, try instead of using a binary variable for before or after to use a tpost variable indicating the number of years before or after the development that the sale took place. Do your conclusions change?
+```{r}
+post_control <- post_control |>
+  mutate(tpost = ownerdate - 2013-01-01)
+model_tpost <- lm(log(amount) ~ tpost + square_footage, data = post_control)
+summary(model_tpost)
+```
+
+**Stretch Goals:** 
+Modify your code so that it works on other developments. Are your findings the same? 
 
 Next, rather than focusing on a single development at time, modify your model to consider all housing developments. Note that you'll likely want to include the sales year as an explanatory variable in your model.
+```{r}
+select_apt <- lihtc |>
+  filter(PROJ_ZIP == "37215")
+latitude <- select_apt$latitude
+longitude <- 86.87503
+distance_meters <- 2000 * 0.3048 # Convert feet to meters
+earth_radius <- 6371000 # Earth radius in meters
+
+# Convert latitude to radians
+lat_rad <- latitude * pi / 180
+
+# Calculate offsets in latitude and longitude
+delta_lat <- distance_meters / earth_radius
+delta_lon <- distance_meters / (earth_radius * cos(lat_rad))
+
+# Convert offsets back to degrees
+delta_lat_deg <- delta_lat * 180 / pi
+delta_lon_deg <- delta_lon * 180 / pi
+
+# Calculate new points (North, South, East, West)
+north_point <- c(longitude, latitude + delta_lat_deg)
+south_point <- c(longitude, latitude - delta_lat_deg)
+east_point <- c(longitude + delta_lon_deg, latitude)
+west_point <- c(longitude - delta_lon_deg, latitude)
+coords <- matrix(
+  c(
+    north_point,
+    south_point,
+    east_point,
+    west_point,
+    north_point), 
+  ncol = 2,
+  byrow = TRUE
+)
+
+treatment_group2 <- property_details %>%
+  filter(latitude >= 36.04103 & latitude <= 36.05199 & longitude >= -86.88181 & longitude <= -86.86825)
+treatment_group2 <- treatment_group2[!duplicated(treatment_group2$apn), ]
+
+pre_treatment2 <- merge(treatment_group2, pre_sale_price, by = "apn", all.x = TRUE) |>
+  filter(!is.na(ownerdate)) 
+  
+  
+post_treatment2 <- merge(treatment_group2, post_sale_price, by = "apn", all.x =TRUE) |>
+  filter(!is.na(ownerdate))
+
+
+latitude <- select_apt$latitude
+longitude <- 86.87503
+distance_meters <- 3000 * 0.3048 
+earth_radius <- 6371000 # 
+
+# Convert latitude to radians
+lat_rad <- latitude * pi / 180
+
+# Calculate offsets in latitude and longitude
+delta_lat <- distance_meters / earth_radius
+delta_lon <- distance_meters / (earth_radius * cos(lat_rad))
+
+# Convert offsets back to degrees
+delta_lat_deg <- delta_lat * 180 / pi
+delta_lon_deg <- delta_lon * 180 / pi
+
+# Calculate new points (North, South, East, West)
+north_point_con <- c(latitude + delta_lat_deg, longitude)
+south_point_con <- c(latitude - delta_lat_deg, longitude)
+east_point_con <- c(latitude, longitude + delta_lon_deg)
+west_point_con <- c(latitude, longitude - delta_lon_deg)
+north_point_con
+south_point_con
+east_point_con
+west_point_con
+three_thousand_group2 <- property_details %>%
+  filter(latitude >= 36.03829 & latitude <= 36.05473 & longitude >= -86.88520 & longitude <= -86.86486)
+
+control_group2 <- anti_join(three_thousand_group2, treatment_group2)
+
+# Combine both groups into a single map
+leaflet() %>%
+  addTiles() %>%
+  # Add control group markers
+  addCircleMarkers(
+    data = control_group2 %>% drop_na(latitude, longitude),
+    ~longitude,
+    ~latitude,
+    color = "orange",      # Marker outline color
+    fillColor = "orange",  # Fill color
+    fillOpacity = 0.8,     # Fill opacity
+    radius = 6,            # Marker size
+    popup = ~as.character(`apn`),
+    label = ~as.character(`tract`),
+    group = "Control Group"
+  ) %>%
+  # Add treatment group markers
+  addMarkers(
+    data = treatment_group2 %>% drop_na(latitude, longitude),
+    ~longitude,
+    ~latitude,
+    popup = ~as.character(`apn`),
+    label = ~as.character(`tract`),
+    group = "Treatment Group"
+  ) %>%
+  # Add the Richards Apartments marker
+  addCircleMarkers(
+    data = select_apt,
+    ~longitude,
+    ~latitude,
+    color = "red",      # Marker outline color
+    fillColor = "red",  # Fill color
+    fillOpacity = 1,    # Fill opacity
+    radius = 8,         # Marker size
+    popup = ~PROJECT,
+    label = ~HUD_ID
+  )
+model3 <- lm(log(amount) ~ ownerdate + square_footage + number_of_rooms, data = post_treatment2)
+summary(model3)
+```
 
 **Bonus:** [Assessing the Impact of Affordable Housing on Nearby Property Values in Alexandria, Virginia](https://www.urban.org/research/publication/assessing-impact-affordable-housing-nearby-property-values-alexandria-virginia) also looks at the impact of affordable housing developments on nearby property values, but uses a different model which focuses only on homes that were sold both before and after the development was placed in service. Use a similar setup to analyze the data from Davidson County.
 
