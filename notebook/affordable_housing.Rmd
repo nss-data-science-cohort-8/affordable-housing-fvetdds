@@ -204,6 +204,7 @@ pre_treatment <- merge(treatment_group, pre_sale_price, by = "apn", all.x = TRUE
 post_treatment <- merge(treatment_group, post_sale_price, by = "apn", all.x =TRUE) |>
   filter(!is.na(ownerdate)) 
   
+
 ```
 
 
